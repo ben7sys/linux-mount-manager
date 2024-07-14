@@ -1,0 +1,11 @@
+[Unit]
+Description=Mount Synogard games SMB share
+
+[Mount]
+What=//192.168.77.77/games
+Where=/syno/games
+Type=cifs
+Options=uid=1000,gid=1000,credentials=/home/sieben/.smbcred,file_mode=0755,dir_mode=0755
+
+[Install]
+WantedBy=multi-user.target
