@@ -2,13 +2,30 @@
 
 set -euo pipefail
 
+# Linux Mount Manager
+# Dieses Skript ermöglicht das Erstellen und Verwalten von Mount-Dateien für Systemd.
+# Es kann verwendet werden, um Netzwerkfreigaben (SMB, NFS) oder andere Dateisysteme zu mounten.
+# Die Mount-Dateien werden im aktuellen Verzeichnis gespeichert und von dort in /etc/systemd/system kopiert.
+# Das Skript kann auch verwendet werden, um Zugangsdaten für SMB- oder NFS-Freigaben zu speichern.
+# Die Zugangsdaten-Dateien werden ebenfalls im aktuellen Verzeichnis gespeichert.
+# Das Skript kann auch verwendet werden, um die Mounts zu aktivieren/deaktivieren und den Status anzuzeigen.
+# Das Skript speichert das Basis-Verzeichnis für die Mount-Punkte in einer Konfigurationsdatei.
+# Standardmäßig wird das Basis-Verzeichnis auf /custom-mounts gesetzt.
+# Die Konfigurationsdatei kann geändert werden, um das Basis-Verzeichnis zu ändern.
+# Das Skript erstellt auch eine Log-Datei in /var/log/custom-mounts.log.
+# Das Skript muss mit sudo-Rechten ausgeführt werden.
+
+# Autor: ben7sys
+
+
 # Konfiguration
-readonly CONFIG_FILE="/etc/custom-mount-manager.conf"
+readonly SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+readonly CONFIG_FILE="$SCRIPT_DIR/linux-mount-manager.conf"
 readonly LOG_FILE="/var/log/custom-mounts.log"
-readonly DEFAULT_MOUNT_BASE="/custom-mounts"
+readonly DEFAULT_MOUNT_DESTINATION="/custom-mounts"
 
 # Globale Variablen
-MOUNT_BASE_DIR=""
+MOUNT_BASE_DEST_DIR=""
 SYSTEMD_MOUNT_FILES_DIR=""
 
 # Farben für die Ausgabe
@@ -19,8 +36,6 @@ declare -A COLORS=(
     [BLUE]='\033[0;34m'
     [NC]='\033[0m' # No Color
 )
-
-# Funktionen
 
 log() {
     local level="$1"
@@ -46,47 +61,82 @@ check_sudo() {
     fi
 }
 
+read_config() {
+    if [[ -f "$CONFIG_FILE" ]]; then
+        source "$CONFIG_FILE"
+    else
+        MOUNT_BASE_DEST_DIR="$DEFAULT_MOUNT_DESTINATION"
+    fi
+}
+
+write_config() {
+    echo "MOUNT_BASE_DEST_DIR=\"$MOUNT_BASE_DEST_DIR\"" > "$CONFIG_FILE"
+}
+
 get_user_input() {
     local prompt="$1"
     local default="$2"
+    local options="$3"
     local input
-    read -rp "$prompt [$default]: " input
-    echo "${input:-$default}"
+
+    if [[ -n "$options" ]]; then
+        echo "$prompt"
+        IFS=',' read -ra ADDR <<< "$options"
+        for i in "${!ADDR[@]}"; do
+            echo "$((i+1)): ${ADDR[i]}"
+        done
+        read -rp "Wähle eine Option (1-${#ADDR[@]}): " input
+        if [[ "$input" =~ ^[0-9]+$ ]] && [ "$input" -ge 1 ] && [ "$input" -le "${#ADDR[@]}" ]; then
+            echo "${ADDR[$((input-1))]}"
+        else
+            echo "$default"
+        fi
+    else
+        read -rp "$prompt [$default]: " input
+        echo "${input:-$default}"
+    fi
 }
 
+# Das Mount-Ziel-Verzeichnis ist das Ziel-Verzeichnis, an dem die Ziele gemountet werden und wird standardmäßig unter /custom-mounts erstellt.
+# Das Verzeichnis wird für die Mount-Punkte wird validiert und ggf. erstellt.
 validate_directory() {
     local dir="$1"
     if [[ ! -d "$dir" ]]; then
-        print_color "YELLOW" "Das Verzeichnis $dir existiert nicht. Soll es erstellt werden? (j/n)"
-        read -r response
-        if [[ "$response" =~ ^([jJ][aA]|[jJ])$ ]]; then
-            sudo mkdir -p "$dir" || error "Konnte Verzeichnis $dir nicht erstellen."
-            print_color "GREEN" "Verzeichnis $dir wurde erstellt."
+        local create_dir
+        create_dir=$(get_user_input "Das Mount-Ziel-Verzeichnis $dir existiert nicht. Soll es erstellt werden?" "1" "1=Ja,2=Nein")
+        if [[ "$create_dir" == "1" ]]; then
+            sudo mkdir -p "$dir" || error "Konnte Mount-Ziel-Verzeichnis $dir nicht erstellen."
+            print_color "GREEN" "Mount-Ziel-Verzeichnis $dir wurde erstellt."
         else
-            error "Das Verzeichnis $dir existiert nicht und wurde nicht erstellt."
+            error "Das Mount-Ziel-Verzeichnis $dir existiert nicht und wurde nicht erstellt."
         fi
     fi
 }
 
+# Die Verzeichnisse für die Mount-Dateien und das Mount-Ziel-Verzeichnis können geändert werden.
 get_mount_directories() {
-    SYSTEMD_MOUNT_FILES_DIR=$(dirname "$(readlink -f "$0")")
+    read_config
+    SYSTEMD_MOUNT_FILES_DIR="$SCRIPT_DIR"
     print_color "YELLOW" "Das aktuelle Verzeichnis für Mount-Dateien ist: $SYSTEMD_MOUNT_FILES_DIR"
-    local response
-    read -rp "Ist dies das richtige Verzeichnis für die Mount-Dateien? (j/n): " response
-    if [[ ! "$response" =~ ^([jJ][aA]|[jJ])$ ]]; then
-        SYSTEMD_MOUNT_FILES_DIR=$(get_user_input "Gib das korrekte Verzeichnis mit den Mount-Dateien an" "$SYSTEMD_MOUNT_FILES_DIR")
+    
+    print_color "YELLOW" "Das aktuelle Mount-Ziel-Verzeichnisfür die Mount-Punkte ist: $MOUNT_BASE_DEST_DIR"
+    local change_base_dir
+    change_base_dir=$(get_user_input "Möchtest du das Mount-Ziel-Verzeichnis ändern?" "Nein" "Ja,Nein")
+    if [[ "$change_base_dir" == "Ja" ]]; then
+        MOUNT_BASE_DEST_DIR=$(get_user_input "Gib das neue Mount-Ziel-Verzeichnis für die Mount-Punkte an" "$MOUNT_BASE_DEST_DIR")
+        validate_directory "$MOUNT_BASE_DEST_DIR"
+        write_config
+        print_color "GREEN" "Neues Mount-Ziel-Verzeichnis gespeichert: $MOUNT_BASE_DEST_DIR"
     fi
-    validate_directory "$SYSTEMD_MOUNT_FILES_DIR"
-
-    MOUNT_BASE_DIR=$(get_user_input "Gib das Basis-Verzeichnis für die Mount-Punkte an" "$DEFAULT_MOUNT_BASE")
-    validate_directory "$MOUNT_BASE_DIR"
 }
 
+# Erstellt oder bearbeitet Mount-Dateien für Systemd.
 create_edit_mount_file() {
-    local action="$1"
+    local action
+    action=$(get_user_input "Möchtest du eine neue Mount-Datei erstellen oder eine bestehende bearbeiten?" "Neu" "1=Neu,2=Bearbeiten")
     local mount_file
 
-    if [[ "$action" == "edit" ]]; then
+    if [[ "$action" == "Bearbeiten" ]]; then
         print_color "YELLOW" "Verfügbare Mount-Dateien:"
         select mount_file in "$SYSTEMD_MOUNT_FILES_DIR"/*.mount; do
             if [[ -n "$mount_file" ]]; then
@@ -105,7 +155,7 @@ create_edit_mount_file() {
     local type
     local options
 
-    if [[ "$action" == "edit" && -f "$mount_file" ]]; then
+    if [[ "$action" == "Bearbeiten" && -f "$mount_file" ]]; then
         what=$(grep "What=" "$mount_file" | cut -d'=' -f2)
         where=$(grep "Where=" "$mount_file" | cut -d'=' -f2)
         type=$(grep "Type=" "$mount_file" | cut -d'=' -f2)
@@ -113,7 +163,7 @@ create_edit_mount_file() {
     fi
 
     what=$(get_user_input "Gib die Quelle ein (What)" "${what:-}")
-    where=$(get_user_input "Gib das Ziel ein (Where)" "${where:-$MOUNT_BASE_DIR/$(basename "$what")}")
+    where=$(get_user_input "Gib das Ziel ein (Where)" "${where:-$MOUNT_BASE_DEST_DIR/$(basename "$what")}")
     type=$(get_user_input "Gib den Dateisystemtyp ein" "${type:-auto}")
     options=$(get_user_input "Gib die Mount-Optionen ein" "${options:-defaults}")
 
@@ -134,12 +184,14 @@ EOF
     print_color "GREEN" "Mount-Datei ${mount_file} wurde erstellt/aktualisiert."
 }
 
+# Erstellt oder bearbeitet Zugangsdaten-Dateien für SMB oder NFS.
 create_edit_credentials() {
     local type="$1"
-    local action="$2"
+    local action
+    action=$(get_user_input "Möchtest du neue Zugangsdaten erstellen oder bestehende bearbeiten?" "1=Neu,2=Bearbeiten")
     local cred_file
 
-    if [[ "$action" == "edit" ]]; then
+    if [[ "$action" == "2" ]]; then
         print_color "YELLOW" "Verfügbare Zugangsdaten-Dateien:"
         select cred_file in "$SYSTEMD_MOUNT_FILES_DIR"/*creds; do
             if [[ -n "$cred_file" ]]; then
@@ -156,9 +208,12 @@ create_edit_credentials() {
     if [[ "$type" == "smb" ]]; then
         local username
         local password
-        if [[ "$action" == "edit" && -f "$cred_file" ]]; then
+        if [[ "$action" == "2" && -f "$cred_file" ]]; then
             username=$(grep "username=" "$cred_file" | cut -d'=' -f2)
             password=$(grep "password=" "$cred_file" | cut -d'=' -f2)
+            print_color "YELLOW" "Aktuelle Zugangsdaten:"
+            echo "Benutzername: $username"
+            echo "Passwort: ********"
         fi
         username=$(get_user_input "Gib den Benutzernamen ein" "${username:-}")
         password=$(get_user_input "Gib das Passwort ein" "${password:-}")
@@ -166,8 +221,10 @@ create_edit_credentials() {
         echo "password=$password" >> "$cred_file"
     elif [[ "$type" == "nfs" ]]; then
         local options
-        if [[ "$action" == "edit" && -f "$cred_file" ]]; then
+        if [[ "$action" == "2" && -f "$cred_file" ]]; then
             options=$(cat "$cred_file")
+            print_color "YELLOW" "Aktuelle NFS-Optionen:"
+            echo "$options"
         fi
         options=$(get_user_input "Gib die NFS-Optionen ein" "${options:-}")
         echo "$options" > "$cred_file"
@@ -177,6 +234,11 @@ create_edit_credentials() {
     print_color "GREEN" "Zugangsdaten-Datei ${cred_file} wurde erstellt/aktualisiert."
 }
 
+# Überprüft, aktiviert und startet einen Mount.
+# In summary, this function checks the validity of a mount file, creates the mount path directory, 
+# copies the mount file to the appropriate location, enables the mount point if it is not already enabled, 
+# and starts the mount point. 
+# It provides feedback to the user through colored messages and logs the actions performed.
 check_and_enable_mount() {
     local mount_file="$1"
     local mount_name
@@ -217,6 +279,7 @@ check_and_enable_mount() {
     fi
 }
 
+# Entfernt und deaktiviert einen Mount.
 disable_and_remove_mount() {
     local mount_file="$1"
     local mount_name
@@ -233,6 +296,7 @@ disable_and_remove_mount() {
     log "INFO" "$mount_name erfolgreich deaktiviert und entfernt"
 }
 
+# Zeigt den Status aller Custom Mounts an.
 show_status() {
     print_color "YELLOW" "Status aller Custom Mounts:"
     log "INFO" "Status aller Custom Mounts abgefragt"
@@ -253,57 +317,89 @@ show_status() {
     fi
 }
 
+# Aktiviert oder deaktiviert einzelne Mounts.
+select_mount() {
+    local action="$1"
+    local mount_file
+    print_color "YELLOW" "Verfügbare Mount-Dateien:"
+    select mount_file in "$SYSTEMD_MOUNT_FILES_DIR"/*.mount "Alle" "Zurück"; do
+        if [[ "$mount_file" == "Alle" ]]; then
+            if [[ "$action" == "activate" ]]; then
+                activate_mounts "all"
+            elif [[ "$action" == "deactivate" ]]; then
+                deactivate_mounts "all"
+            fi
+            break
+        elif [[ "$mount_file" == "Zurück" ]]; then
+            return 1
+        elif [[ -n "$mount_file" ]]; then
+            if [[ "$action" == "activate" ]]; then
+                activate_mounts "$mount_file"
+            elif [[ "$action" == "deactivate" ]]; then
+                deactivate_mounts "$mount_file"
+            fi
+            break
+        else
+            print_color "RED" "Ungültige Auswahl. Bitte versuche es erneut."
+        fi
+    done
+}
+
+activate_mounts() {
+    local mount_file="$1"
+    sudo systemctl daemon-reload
+    if [[ "$mount_file" == "all" ]]; then
+        while IFS= read -r -d '' mount_file; do
+            check_and_enable_mount "$mount_file"
+        done < <(find "$SYSTEMD_MOUNT_FILES_DIR" -maxdepth 1 -type f -name "*.mount" -print0)
+    else
+        check_and_enable_mount "$mount_file"
+    fi
+}
+
+deactivate_mounts() {
+    local mount_file="$1"
+    if [[ "$mount_file" == "all" ]]; then
+        while IFS= read -r -d '' mount_file; do
+            disable_and_remove_mount "$mount_file"
+        done < <(find "$SYSTEMD_MOUNT_FILES_DIR" -maxdepth 1 -type f -name "*.mount" -print0)
+    else
+        disable_and_remove_mount "$mount_file"
+    fi
+    sudo systemctl daemon-reload
+}
+
 main_menu() {
     while true; do
         echo
         print_color "BLUE" "Custom Mount Manager"
-        echo "1. Aktiviere Mounts"
-        echo "2. Deaktiviere Mounts"
+        echo "1. Aktiviere Mount(s)"
+        echo "2. Deaktiviere Mount(s)"
         echo "3. Zeige Status"
         echo "4. Erstelle/Bearbeite Mount-Datei"
         echo "5. Erstelle/Bearbeite Zugangsdaten (SMB/NFS)"
         echo "6. Ändere Mount-Konfigurationen"
         echo "7. Beenden"
         local option
-        option=$(get_user_input "Wähle eine Option (1-7)" "")
+        option=$(get_user_input "Wähle eine Option" "" "1,2,3,4,5,6,7")
         
         case $option in
             1)
-                sudo systemctl daemon-reload
-                while IFS= read -r -d '' mount_file; do
-                    check_and_enable_mount "$mount_file"
-                done < <(find "$SYSTEMD_MOUNT_FILES_DIR" -maxdepth 1 -type f -name "*.mount" -print0)
+                select_mount "activate"
                 ;;
             2)
-                while IFS= read -r -d '' mount_file; do
-                    disable_and_remove_mount "$mount_file"
-                done < <(find "$SYSTEMD_MOUNT_FILES_DIR" -maxdepth 1 -type f -name "*.mount" -print0)
-                sudo systemctl daemon-reload
+                select_mount "deactivate"
                 ;;
             3)
                 show_status
                 ;;
             4)
-                local action
-                read -rp "Möchtest du eine neue Mount-Datei erstellen oder eine bestehende bearbeiten? (neu/bearbeiten): " action
-                if [[ "$action" == "neu" ]]; then
-                    create_edit_mount_file "create"
-                elif [[ "$action" == "bearbeiten" ]]; then
-                    create_edit_mount_file "edit"
-                else
-                    print_color "RED" "Ungültige Auswahl."
-                fi
+                create_edit_mount_file
                 ;;
             5)
                 local cred_type
-                local cred_action
-                read -rp "Für welchen Typ möchtest du Zugangsdaten erstellen/bearbeiten? (smb/nfs): " cred_type
-                read -rp "Möchtest du neue Zugangsdaten erstellen oder bestehende bearbeiten? (neu/bearbeiten): " cred_action
-                if [[ "$cred_type" == "smb" || "$cred_type" == "nfs" ]] && [[ "$cred_action" == "neu" || "$cred_action" == "bearbeiten" ]]; then
-                    create_edit_credentials "$cred_type" "$cred_action"
-                else
-                    print_color "RED" "Ungültige Auswahl."
-                fi
+                cred_type=$(get_user_input "Für welchen Typ möchtest du Zugangsdaten erstellen/bearbeiten?" "smb" "smb,nfs")
+                create_edit_credentials "$cred_type"
                 ;;
             6)
                 get_mount_directories
@@ -319,7 +415,8 @@ main_menu() {
     done
 }
 
-# Hauptprogramm
+# Initialisierung
 check_sudo
+read_config
 get_mount_directories
 main_menu
