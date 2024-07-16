@@ -21,7 +21,7 @@ set -euo pipefail
 # Konfiguration
 readonly SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 readonly CONFIG_FILE="$SCRIPT_DIR/linux-mount-manager.conf"
-readonly LOG_FILE="/var/log/custom-mounts.log"
+readonly LOG_FILE="$SCRIPT_DIR/custom-mounts.log"
 readonly DEFAULT_MOUNT_DESTINATION="/custom-mounts"
 
 # Globale Variablen

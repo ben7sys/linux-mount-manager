@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Mount Management Script
-# Version: 1.0
-# This script manages systemd mount units.
+# Version: 2.1
+# This script manages systemd mount units with improved error handling and user interaction.
 
 # Color definitions
 GREEN='\033[0;32m'
@@ -38,7 +38,6 @@ reload_systemd() {
 # Validate mount file
 validate_mount_file() {
     local mount_file="$1"
-    # Basic validation, can be extended
     if grep -q "^\[Mount\]" "$mount_file" && grep -q "^What=" "$mount_file" && grep -q "^Where=" "$mount_file"; then
         return 0
     else
@@ -60,12 +59,127 @@ check_target_path() {
 # Check mount status
 check_mount_status() {
     local mount_name="$1"
+    local mount_file="$MOUNT_FILES_DIR/${mount_name}.mount"
     if systemctl is-active --quiet "${mount_name}.mount"; then
-        echo -e "${GREEN}active${NC}"
-    elif ! validate_mount_file "$MOUNT_FILES_DIR/${mount_name}.mount" || ! check_target_path "$MOUNT_FILES_DIR/${mount_name}.mount"; then
-        echo -e "${YELLOW}error${NC}"
+        echo "active"
+    elif ! validate_mount_file "$mount_file"; then
+        echo "error (invalid file)"
+    elif ! check_target_path "$mount_file"; then
+        echo "error (missing target)"
     else
-        echo -e "${RED}inactive${NC}"
+        echo "inactive"
+    fi
+}
+
+# Show mount details
+show_mount_details() {
+    local mount_name="$1"
+    local mount_file="$MOUNT_FILES_DIR/${mount_name}.mount"
+    echo -e "\nDetails for $mount_name:"
+    if ! validate_mount_file "$mount_file"; then
+        echo -e "${RED}Invalid mount file. Missing required sections or fields.${NC}"
+    fi
+    if ! check_target_path "$mount_file"; then
+        local target_path=$(grep "^Where=" "$mount_file" | cut -d'=' -f2)
+        echo -e "${RED}Target path does not exist: $target_path${NC}"
+    fi
+    echo -e "\nContent of ${mount_name}.mount:"
+    cat "$mount_file"
+    echo  # Add an empty line here
+}
+
+# Activate mount
+activate_mount() {
+    local mount_name="$1"
+    local systemd_file="$SYSTEMD_DIR/${mount_name}.mount"
+    cp "$MOUNT_FILES_DIR/${mount_name}.mount" "$systemd_file"
+    reload_systemd
+    if systemctl start "${mount_name}.mount"; then
+        echo -e "${GREEN}Activated $mount_name${NC}"
+        log_action "Activated mount: $mount_name"
+    else
+        echo -e "${RED}Failed to activate $mount_name${NC}"
+        log_action "Failed to activate mount: $mount_name"
+    fi
+}
+
+# Deactivate mount
+deactivate_mount() {
+    local mount_name="$1"
+    local systemd_file="$SYSTEMD_DIR/${mount_name}.mount"
+    if systemctl stop "${mount_name}.mount"; then
+        rm "$systemd_file"
+        reload_systemd
+        echo -e "${GREEN}Deactivated $mount_name${NC}"
+        log_action "Deactivated mount: $mount_name"
+    else
+        echo -e "${RED}Failed to deactivate $mount_name${NC}"
+        log_action "Failed to deactivate mount: $mount_name"
+    fi
+}
+
+# Toggle mount
+toggle_mount() {
+    local mount_name="$1"
+    local mount_file="$MOUNT_FILES_DIR/${mount_name}.mount"
+    local status=$(check_mount_status "$mount_name")
+
+    case $status in
+        "error (missing target)")
+            show_mount_details "$mount_name"
+            local target_path=$(grep "^Where=" "$mount_file" | cut -d'=' -f2)
+            echo -e "${YELLOW}The target directory does not exist. Do you want to create '$target_path'? (y/n):${NC} "
+            read -r answer
+            if [[ $answer == "y" ]]; then
+                if mkdir -p "$target_path"; then
+                    echo -e "${GREEN}Created directory: $target_path${NC}"
+                    log_action "Created directory: $target_path"
+                    status="inactive"  # Update status to proceed with activation
+                else
+                    echo -e "${RED}Failed to create directory. Please check permissions and try again.${NC}"
+                    log_action "Failed to create directory: $target_path"
+                    return
+                fi
+            else
+                echo "Operation cancelled."
+                return
+            fi
+            ;;
+        "error (invalid file)")
+            show_mount_details "$mount_name"
+            echo -e "${RED}The mount file is invalid. Please edit it to fix the issues.${NC}"
+            read -p "Do you want to open the file in an editor now? (y/n): " answer
+            if [[ $answer == "y" ]]; then
+                ${EDITOR:-nano} "$mount_file"
+                echo "Checking the updated mount file..."
+                if validate_mount_file "$mount_file"; then
+                    echo -e "${GREEN}Mount file has been successfully updated.${NC}"
+                    log_action "Updated mount file: $mount_name"
+                    status="inactive"  # Update status to proceed with activation
+                else
+                    echo -e "${RED}Mount file is still invalid. Please check and try again.${NC}"
+                    log_action "Failed to update mount file: $mount_name"
+                    return
+                fi
+            else
+                echo "Operation cancelled."
+                return
+            fi
+            ;;
+        "active")
+            echo "Deactivating $mount_name..."
+            deactivate_mount "$mount_name"
+            ;;
+        "inactive")
+            echo "Activating $mount_name..."
+            activate_mount "$mount_name"
+            ;;
+    esac
+
+    # After handling errors or changes, proceed with activation if the status is now "inactive"
+    if [[ $status == "inactive" ]]; then
+        echo "Proceeding with activation of $mount_name..."
+        activate_mount "$mount_name"
     fi
 }
 
@@ -77,52 +191,30 @@ list_mounts() {
         if [[ -f "$file" ]]; then
             local mount_name=$(basename "$file" .mount)
             local status=$(check_mount_status "$mount_name")
-            printf "%3d) %-20s [%s]\n" $i "$mount_name" "$status"
+            case $status in
+                "active")
+                    status_colored="${GREEN}active${NC}"
+                    ;;
+                "inactive")
+                    status_colored="${RED}inactive${NC}"
+                    ;;
+                *)
+                    status_colored="${YELLOW}$status${NC}"
+                    ;;
+            esac
+            printf "%3d) %-20s [%b]\n" $i "$mount_name" "$status_colored"
             ((i++))
         fi
     done
     echo -e "${YELLOW}q) Quit${NC}"
 }
 
-# Toggle mount status
-toggle_mount() {
-    local mount_name="$1"
-    local source_file="$MOUNT_FILES_DIR/${mount_name}.mount"
-    local systemd_file="$SYSTEMD_DIR/${mount_name}.mount"
-
-    if ! validate_mount_file "$source_file"; then
-        echo -e "${RED}Error: Invalid mount file for $mount_name${NC}"
-        log_action "Failed to toggle mount: $mount_name (Invalid mount file)"
-        return 1
-    fi
-
-    if ! check_target_path "$source_file"; then
-        echo -e "${RED}Error: Target path does not exist for $mount_name${NC}"
-        log_action "Failed to toggle mount: $mount_name (Target path does not exist)"
-        return 1
-    fi
-
-    if systemctl is-active --quiet "${mount_name}.mount"; then
-        systemctl stop "${mount_name}.mount"
-        rm "$systemd_file"
-        reload_systemd
-        echo -e "${GREEN}Deactivated $mount_name${NC}"
-        log_action "Deactivated mount: $mount_name"
-    else
-        cp "$source_file" "$systemd_file"
-        reload_systemd
-        systemctl start "${mount_name}.mount"
-        echo -e "${GREEN}Activated $mount_name${NC}"
-        log_action "Activated mount: $mount_name"
-    fi
-}
-
-# Main menu
+# Show menu
 show_menu() {
     while true; do
         echo -e "\n${YELLOW}Mount Management Menu:${NC}"
         list_mounts
-        echo -e "\nEnter the number of the mount to toggle its status, or 'q' to quit:"
+        echo -e "\nEnter the number of the mount to manage it, or 'q' to quit:"
         read -r choice
 
         case $choice in

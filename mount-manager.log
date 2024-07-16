@@ -1,1 +1,24 @@
 2024-07-16 17:58:35 - Failed to toggle mount: syno-games (Target path does not exist)
+2024-07-16 18:17:32 - Created directory: /syno/games
+2024-07-16 18:17:32 - Reloaded systemd configuration
+2024-07-16 18:17:32 - Activated mount: syno-games
+2024-07-16 18:24:10 - Created directory: /syno/archiv
+2024-07-16 18:24:11 - Reloaded systemd configuration
+2024-07-16 18:24:11 - Activated mount: syno-archiv
+2024-07-16 18:30:16 - Created directory: /syno/backup
+2024-07-16 18:30:16 - Reloaded systemd configuration
+2024-07-16 18:30:16 - Activated mount: syno-backup
+2024-07-16 18:34:37 - Reloaded systemd configuration
+2024-07-16 18:34:37 - Deactivated mount: syno-games
+2024-07-16 18:34:47 - Reloaded systemd configuration
+2024-07-16 18:34:47 - Activated mount: syno-games
+2024-07-16 18:34:47 - Reloaded systemd configuration
+2024-07-16 18:34:47 - Activated mount: syno-games
+2024-07-16 18:34:59 - Failed to deactivate mount: syno-games
+2024-07-16 18:39:27 - Reloaded systemd configuration
+2024-07-16 18:39:27 - Deactivated mount: syno-games
+2024-07-16 18:41:20 - Created directory: /syno/cloudsync
+2024-07-16 18:41:20 - Reloaded systemd configuration
+2024-07-16 18:41:20 - Activated mount: syno-cloudsync
+2024-07-16 18:41:41 - Reloaded systemd configuration
+2024-07-16 18:41:41 - Deactivated mount: syno-cloudsync
