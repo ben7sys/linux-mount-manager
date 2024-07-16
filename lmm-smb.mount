@@ -1,11 +1,11 @@
 [Unit]
-Description=Mount Synogard archiv SMB share
+Description=SMB mount
 
 [Mount]
-What=//192.168.77.77/archiv
-Where=/syno/archiv
+What=//192.168.0.0/smb
+Where=/lmm/smb
 Type=cifs
-Options=uid=1000,gid=1000,credentials=/home/sieben/.smbcred,file_mode=0755,dir_mode=0755
+Options=uid=1000,gid=1000,credentials=/home/username/.smbcred,file_mode=0755,dir_mode=0755
 
 [Install]
 WantedBy=multi-user.target
