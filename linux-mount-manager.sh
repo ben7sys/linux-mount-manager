@@ -1,283 +1,264 @@
 #!/bin/bash
 
-# Systemd Mount Manager
-# Verwaltet systemd Mount-Units für verschiedene Dateisysteme
+# Mount Management Script
+# Version: 2.2
+# This script manages systemd mount units with improved error handling and user interaction.
 
-set -euo pipefail
-
-# Farbdefinitionen
-RED='\033[0;31m'
+# Color definitions
 GREEN='\033[0;32m'
+RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Logging-Funktion
-log() {
-    local level=$1
-    local message=$2
-    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    echo -e "${timestamp} [${level}] ${message}" >> /var/log/custom-mounts.log
-    case $level in
-        "INFO")  echo -e "${GREEN}${message}${NC}" ;;
-        "WARN")  echo -e "${YELLOW}${message}${NC}" ;;
-        "ERROR") echo -e "${RED}${message}${NC}" ;;
-        *)       echo -e "${message}" ;;
+# Directory paths
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+MOUNT_FILES_DIR="$SCRIPT_DIR"
+SYSTEMD_DIR="/etc/systemd/system"
+
+# Log file
+LOG_FILE="$SCRIPT_DIR/mount-manager.log"
+
+# Check if script is run with sudo
+if [[ $EUID -ne 0 ]]; then
+    echo -e "${RED}This script must be run with sudo privileges.${NC}"
+    exit 1
+fi
+
+# Logging function
+log_action() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+# Reload systemd configuration
+reload_systemd() {
+    systemctl daemon-reload
+    log_action "Reloaded systemd configuration"
+}
+
+# Validate mount file
+validate_mount_file() {
+    local mount_file="$1"
+    if grep -q "^\[Mount\]" "$mount_file" && grep -q "^What=" "$mount_file" && grep -q "^Where=" "$mount_file"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Check if target path exists
+check_target_path() {
+    local mount_file="$1"
+    local target_path=$(grep "^Where=" "$mount_file" | cut -d'=' -f2)
+    if [[ -d "$target_path" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Check mount status
+check_mount_status() {
+    local mount_name="$1"
+    local mount_file="$MOUNT_FILES_DIR/${mount_name}.mount"
+    if systemctl is-active --quiet "${mount_name}.mount"; then
+        echo "active"
+    elif ! validate_mount_file "$mount_file"; then
+        echo "error (invalid file)"
+    elif ! check_target_path "$mount_file"; then
+        echo "error (missing target)"
+    else
+        echo "inactive"
+    fi
+}
+
+# Show mount details
+show_mount_details() {
+    local mount_name="$1"
+    local mount_file="$MOUNT_FILES_DIR/${mount_name}.mount"
+    echo -e "\nDetails for $mount_name:"
+    echo  # Add an empty line here
+    echo -e "Content of ${mount_name}.mount:"
+    cat "$mount_file"
+    echo  # Add an empty line here
+    if ! check_target_path "$mount_file"; then
+        local target_path=$(grep "^Where=" "$mount_file" | cut -d'=' -f2)
+        echo -e "${RED}Target path does not exist: $target_path${NC}"
+        echo  # Add an empty line here
+    fi
+    if ! validate_mount_file "$mount_file"; then
+        echo -e "${RED}Invalid mount file. Missing required sections or fields.${NC}"
+        echo  # Add an empty line here
+    fi
+}
+
+# Activate mount
+activate_mount() {
+    local mount_name="$1"
+    local systemd_file="$SYSTEMD_DIR/${mount_name}.mount"
+    cp "$MOUNT_FILES_DIR/${mount_name}.mount" "$systemd_file"
+    reload_systemd
+    if systemctl start "${mount_name}.mount"; then
+        echo -e "${GREEN}Successfully activated $mount_name${NC}"
+        log_action "Activated mount: $mount_name"
+    else
+        echo -e "${RED}Failed to activate $mount_name${NC}"
+        log_action "Failed to activate mount: $mount_name"
+    fi
+}
+# Deactivate mount
+deactivate_mount() {
+    local mount_name="$1"
+    local systemd_file="$SYSTEMD_DIR/${mount_name}.mount"
+    local mount_point=$(grep "^Where=" "$systemd_file" | cut -d'=' -f2)
+    
+    if fuser -sm "$mount_point" > /dev/null 2>&1; then
+        echo -e "${RED}Cannot deactivate $mount_name. It is currently in use.${NC}"
+        echo "Please close all applications using this mount and try again."
+        log_action "Failed to deactivate mount: $mount_name (in use)"
+        return 1
+    fi
+
+    if systemctl stop "${mount_name}.mount"; then
+        rm "$systemd_file"
+        reload_systemd
+        echo -e "${GREEN}Successfully deactivated $mount_name${NC}"
+        log_action "Deactivated mount: $mount_name"
+    else
+        echo -e "${RED}Failed to deactivate $mount_name${NC}"
+        log_action "Failed to deactivate mount: $mount_name"
+    fi
+}
+
+# Toggle mount
+toggle_mount() {
+    local mount_name="$1"
+    local mount_file="$MOUNT_FILES_DIR/${mount_name}.mount"
+    local status=$(check_mount_status "$mount_name")
+
+    case $status in
+        "error (missing target)")
+            show_mount_details "$mount_name"
+            local target_path=$(grep "^Where=" "$mount_file" | cut -d'=' -f2)
+            echo -e "${YELLOW}The target directory does not exist. Do you want to create '$target_path'? (y/n):${NC} "
+            read -r answer
+            if [[ $answer == "y" ]]; then
+                if mkdir -p "$target_path"; then
+                    echo -e "${GREEN}Created directory: $target_path${NC}"
+                    log_action "Created directory: $target_path"
+                    activate_mount "$mount_name"
+                else
+                    echo -e "${RED}Failed to create directory. Please check permissions and try again.${NC}"
+                    log_action "Failed to create directory: $target_path"
+                fi
+            else
+                echo "Operation cancelled."
+            fi
+            ;;
+        "error (invalid file)")
+            show_mount_details "$mount_name"
+            echo -e "${RED}The mount file is invalid. Please edit it to fix the issues.${NC}"
+            read -p "Do you want to open the file in an editor now? (y/n): " answer
+            if [[ $answer == "y" ]]; then
+                ${EDITOR:-nano} "$mount_file"
+                echo "Checking the updated mount file..."
+                if validate_mount_file "$mount_file"; then
+                    echo -e "${GREEN}Mount file has been successfully updated.${NC}"
+                    log_action "Updated mount file: $mount_name"
+                    activate_mount "$mount_name"
+                else
+                    echo -e "${RED}Mount file is still invalid. Please check and try again.${NC}"
+                    log_action "Failed to update mount file: $mount_name"
+                fi
+            else
+                echo "Operation cancelled."
+            fi
+            ;;
+        "active")
+            echo -e "${YELLOW}Deactivating $mount_name...${NC}"
+            deactivate_mount "$mount_name"
+            ;;
+        "inactive")
+            echo -e "${YELLOW}Activating $mount_name...${NC}"
+            activate_mount "$mount_name"
+            ;;
     esac
 }
 
-# Überprüfung der sudo-Rechte
-check_sudo() {
-    if [[ $EUID -ne 0 ]]; then
-        log "ERROR" "Dieses Skript muss mit sudo-Rechten ausgeführt werden."
+# List available mounts
+list_mounts() {
+    local i=1
+    echo "Available mounts:"
+    for file in "$MOUNT_FILES_DIR"/*.mount; do
+        if [[ -f "$file" ]]; then
+            local mount_name=$(basename "$file" .mount)
+            local status=$(check_mount_status "$mount_name")
+            case $status in
+                "active")
+                    status_colored="${GREEN}active${NC}"
+                    ;;
+                "inactive")
+                    status_colored="${RED}inactive${NC}"
+                    ;;
+                *)
+                    status_colored="${YELLOW}$status${NC}"
+                    ;;
+            esac
+            printf "%3d) %-20s [%b]\n" $i "$mount_name" "$status_colored"
+            ((i++))
+        fi
+    done
+    echo -e "${YELLOW}q) Quit${NC}"
+}
+
+# Show menu
+show_menu() {
+    while true; do
+        echo -e "\n${YELLOW}Mount Management Menu:${NC}"
+        list_mounts
+        echo -e "\nEnter the number of the mount to manage it, or 'q' to quit:"
+        read -r choice
+
+        case $choice in
+            q)
+                echo "Exiting..."
+                return
+                ;;
+            [0-9]*)
+                local selected=false
+                local i=1
+                for file in "$MOUNT_FILES_DIR"/*.mount; do
+                    if [[ -f "$file" && $i -eq $choice ]]; then
+                        local mount_name=$(basename "$file" .mount)
+                        toggle_mount "$mount_name"
+                        selected=true
+                        break
+                    fi
+                    ((i++))
+                done
+                if ! $selected; then
+                    echo -e "${RED}Invalid selection. Please try again.${NC}"
+                fi
+                ;;
+            *)
+                echo -e "${RED}Invalid input. Please enter a number or 'q'.${NC}"
+                ;;
+        esac
+    done
+}
+
+# Main function
+main() {
+    if [[ ! -d "$MOUNT_FILES_DIR" ]]; then
+        echo -e "${RED}Error: Mount files directory does not exist.${NC}"
         exit 1
     fi
-}
 
-# Konfigurationsdatei lesen
-read_config() {
-    local config_file="./mount_manager.conf"
-    if [[ -f "$config_file" ]]; then
-        source "$config_file"
-    else
-        MOUNT_FILES_DIR="/etc/systemd/system"
-        MOUNT_TARGET_DIR="/mnt"
-        echo "MOUNT_FILES_DIR=\"$MOUNT_FILES_DIR\"" > "$config_file"
-        echo "MOUNT_TARGET_DIR=\"$MOUNT_TARGET_DIR\"" >> "$config_file"
+    if [[ -z $(find "$MOUNT_FILES_DIR" -name "*.mount" -print -quit) ]]; then
+        echo -e "${RED}Error: No .mount files found in $MOUNT_FILES_DIR${NC}"
+        exit 1
     fi
+
+    show_menu
 }
 
-# Hauptmenü anzeigen
-show_main_menu() {
-    echo "=== Systemd Mount Manager ==="
-    echo "1) Mounts verwalten"
-    echo "2) Zugangsdaten verwalten"
-    echo "3) Konfiguration verwalten"
-    echo "4) Beenden"
-    echo "Wählen Sie eine Option (1-4):"
-}
-
-# Mounts verwalten
-manage_mounts() {
-    while true; do
-        echo "=== Mounts verwalten ==="
-        local mounts=($(ls ${MOUNT_FILES_DIR}/*.mount 2>/dev/null))
-        local statuses=$(systemctl is-active "${mounts[@]##*/}" 2>/dev/null)
-        local i=0
-        for mount in "${mounts[@]}"; do
-            local mount_name=$(basename "$mount")
-            local status=$(echo "$statuses" | sed -n "$((i+1))p")
-            if [[ "$status" == "active" ]]; then
-                echo -e "${GREEN}$((i+1))) ${mount_name}${NC}"
-            else
-                echo -e "${RED}$((i+1))) ${mount_name}${NC}"
-            fi
-            ((i++))
-        done
-        echo "A) Alle aktivieren"
-        echo "D) Alle deaktivieren"
-        echo "N) Neuen Mount erstellen"
-        echo "Z) Zurück zum Hauptmenü"
-        read -r -p "Wählen Sie eine Option: " choice
-        case $choice in
-            [1-9]*)
-                if ((choice <= ${#mounts[@]})); then
-                    toggle_mount "${mounts[$((choice-1))]}"
-                else
-                    log "WARN" "Ungültige Auswahl."
-                fi
-                ;;
-            A|a) activate_all_mounts ;;
-            D|d) deactivate_all_mounts ;;
-            N|n) create_new_mount ;;
-            Z|z) break ;;
-            *) log "WARN" "Ungültige Option." ;;
-        esac
-    done
-}
-
-# Mount aktivieren/deaktivieren
-toggle_mount() {
-    local mount_file="$1"
-    local mount_name=$(basename "$mount_file")
-    local status=$(systemctl is-active "$mount_name" 2>/dev/null)
-    if [[ "$status" == "active" ]]; then
-        if systemctl stop "$mount_name" && systemctl disable "$mount_name"; then
-            log "INFO" "$mount_name deaktiviert."
-        else
-            log "ERROR" "Fehler beim Deaktivieren von $mount_name."
-        fi
-    else
-        if systemctl start "$mount_name" && systemctl enable "$mount_name"; then
-            log "INFO" "$mount_name aktiviert."
-        else
-            log "ERROR" "Fehler beim Aktivieren von $mount_name."
-        fi
-    fi
-}
-
-# Alle Mounts aktivieren
-activate_all_mounts() {
-    local success=true
-    for mount in ${MOUNT_FILES_DIR}/*.mount; do
-        if ! systemctl start "$(basename "$mount")" || ! systemctl enable "$(basename "$mount")"; then
-            log "ERROR" "Fehler beim Aktivieren von $(basename "$mount")."
-            success=false
-        fi
-    done
-    if $success; then
-        log "INFO" "Alle Mounts aktiviert."
-    else
-        log "WARN" "Einige Mounts konnten nicht aktiviert werden."
-    fi
-}
-
-# Alle Mounts deaktivieren
-deactivate_all_mounts() {
-    local success=true
-    for mount in ${MOUNT_FILES_DIR}/*.mount; do
-        if ! systemctl stop "$(basename "$mount")" || ! systemctl disable "$(basename "$mount")"; then
-            log "ERROR" "Fehler beim Deaktivieren von $(basename "$mount")."
-            success=false
-        fi
-    done
-    if $success; then
-        log "INFO" "Alle Mounts deaktiviert."
-    else
-        log "WARN" "Einige Mounts konnten nicht deaktiviert werden."
-    fi
-}
-
-# Neuen Mount erstellen
-create_new_mount() {
-    read -r -p "Geben Sie den Namen für den neuen Mount ein (ohne .mount): " mount_name
-    local mount_file="${MOUNT_FILES_DIR}/${mount_name}.mount"
-    if [[ -f "$mount_file" ]]; then
-        log "ERROR" "Ein Mount mit diesem Namen existiert bereits."
-        return
-    fi
-    read -r -p "Geben Sie den Quellpfad ein: " source_path
-    read -r -p "Geben Sie den Zielpfad ein: " target_path
-    read -r -p "Geben Sie den Dateisystemtyp ein (z.B. nfs, cifs): " fs_type
-    
-    cat > "$mount_file" << EOF
-[Unit]
-Description=Mount for $mount_name
-
-[Mount]
-What=$source_path
-Where=$target_path
-Type=$fs_type
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    log "INFO" "Neue Mount-Datei erstellt: $mount_file"
-}
-
-# Zugangsdaten verwalten
-manage_credentials() {
-    while true; do
-        echo "=== Zugangsdaten verwalten ==="
-        local cred_files=(".smb.cred" ".nfs.cred")
-        for i in "${!cred_files[@]}"; do
-            local cred_file="${HOME}/${cred_files[$i]}"
-            if [[ -f "$cred_file" ]]; then
-                echo -e "${GREEN}$((i+1))) ${cred_files[$i]}${NC}"
-            else
-                echo -e "${RED}$((i+1))) ${cred_files[$i]}${NC}"
-            fi
-        done
-        echo "Z) Zurück zum Hauptmenü"
-        read -r -p "Wählen Sie eine Option: " choice
-        case $choice in
-            [1-9]*)
-                if ((choice <= ${#cred_files[@]})); then
-                    edit_credential_file "${HOME}/${cred_files[$((choice-1))]}"
-                else
-                    log "WARN" "Ungültige Auswahl."
-                fi
-                ;;
-            Z|z) break ;;
-            *) log "WARN" "Ungültige Option." ;;
-        esac
-    done
-}
-
-# Zugangsdatei bearbeiten
-edit_credential_file() {
-    local cred_file="$1"
-    if [[ "$cred_file" != "${HOME}"/* ]]; then
-        log "ERROR" "Unerlaubter Zugriff auf Datei außerhalb des Home-Verzeichnisses."
-        return
-    fi
-    if [[ ! -f "$cred_file" ]]; then
-        touch "$cred_file"
-    fi
-    chmod 600 "$cred_file"
-    ${EDITOR:-vi} "$cred_file"
-    log "INFO" "Zugangsdatei $cred_file bearbeitet."
-}
-
-# Konfiguration verwalten
-manage_configuration() {
-    while true; do
-        echo "=== Konfiguration verwalten ==="
-        echo "Aktuelle Konfiguration:"
-        echo "1) Mount Files Verzeichnis: $MOUNT_FILES_DIR"
-        echo "2) Ziel-Mount-Verzeichnis: $MOUNT_TARGET_DIR"
-        echo "3) Zurück zum Hauptmenü"
-        read -r -p "Wählen Sie eine Option zum Ändern (1-3): " choice
-        case $choice in
-            1)
-                read -r -p "Neues Mount Files Verzeichnis: " new_dir
-                if [[ -d "$new_dir" ]]; then
-                    MOUNT_FILES_DIR="$new_dir"
-                    update_config
-                else
-                    log "ERROR" "Das angegebene Verzeichnis existiert nicht."
-                fi
-                ;;
-            2)
-                read -r -p "Neues Ziel-Mount-Verzeichnis: " new_dir
-                if [[ -d "$new_dir" ]]; then
-                    MOUNT_TARGET_DIR="$new_dir"
-                    update_config
-                else
-                    log "ERROR" "Das angegebene Verzeichnis existiert nicht."
-                fi
-                ;;
-            3) break ;;
-            *) log "WARN" "Ungültige Option." ;;
-        esac
-    done
-}
-
-# Konfiguration aktualisieren
-update_config() {
-    local config_file="./mount_manager.conf"
-    echo "MOUNT_FILES_DIR=\"$MOUNT_FILES_DIR\"" > "$config_file"
-    echo "MOUNT_TARGET_DIR=\"$MOUNT_TARGET_DIR\"" >> "$config_file"
-    log "INFO" "Konfiguration aktualisiert."
-}
-
-# Hauptprogrammschleife
-main() {
-    check_sudo
-    read_config
-    
-    while true; do
-        show_main_menu
-        read -r choice
-        case $choice in
-            1) manage_mounts ;;
-            2) manage_credentials ;;
-            3) manage_configuration ;;
-            4) log "INFO" "Programm wird beendet."; exit 0 ;;
-            *) log "WARN" "Ungültige Option. Bitte wählen Sie 1-4." ;;
-        esac
-    done
-}
-
-# Programm starten
 main
