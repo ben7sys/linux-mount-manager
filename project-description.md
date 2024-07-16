@@ -1,9 +1,8 @@
- 
-# Custom Mount Manager
+# Linux Mount Manager
 
 ## Projektbeschreibung
 
-Der Custom Mount Manager ist ein umfassendes Bash-Skript zur Verwaltung von benutzerdefinierten Mount-Punkten unter Linux. Es bietet eine benutzerfreundliche Schnittstelle zur Erstellung, Bearbeitung, Aktivierung und Deaktivierung von systemd Mount-Units, sowie zur Verwaltung von Zugangsdaten für verschiedene Dateisysteme. Das Skript ist darauf ausgelegt, die Verwaltung von Mounts zu vereinfachen und gleichzeitig Flexibilität und Sicherheit zu gewährleisten.
+Der Linux Mount Manager ist ein umfassendes Bash-Skript zur Verwaltung von benutzerdefinierten Mount-Punkten unter Linux. Es bietet eine benutzerfreundliche Schnittstelle zur Erstellung, Bearbeitung, Aktivierung und Deaktivierung von systemd Mount-Units, sowie zur Verwaltung von Zugangsdaten für verschiedene Dateisysteme. Das Skript ist darauf ausgelegt, die Verwaltung von Mounts zu vereinfachen und gleichzeitig Flexibilität und Sicherheit zu gewährleisten.
 
 ## Hauptfunktionen
 
