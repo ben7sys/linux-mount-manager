@@ -22,15 +22,15 @@ This Bash script provides a user-friendly interface for managing systemd mount u
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/mount-management-script.git
+   git clone https://github.com/ben7sys/linux-mount-manager.git
    ```
 2. Change to the directory:
    ```
-   cd mount-management-script
+   cd linux-mount-manager
    ```
 3. Make the script executable:
    ```
-   chmod +x mount_management_script.sh
+   chmod +x linux-mount-manager.sh
    ```
 
 ## Usage
@@ -38,7 +38,7 @@ This Bash script provides a user-friendly interface for managing systemd mount u
 Run the script with sudo privileges:
 
 ```
-sudo ./mount_management_script.sh
+sudo ./linux-mount-manager.sh
 ```
 
 Follow the prompts in the interactive menu to manage mounts.
@@ -58,20 +58,14 @@ Follow the prompts in the interactive menu to manage mounts.
 
 ## Contributing
 
-Contributions are welcome! Please read CONTRIBUTING.md for details on our code of conduct and the process for submitting pull requests.
-
-## Version History
-
-- **v3.2** (2023-07-16): Improved handling of custom mounts, bug fixes
-- **v3.1** (2023-07-15): Added support for custom mounts
-- **v3.0** (2023-07-14): Initial release of the revamped script
+TBD: (Contributions are welcome! Please read CONTRIBUTING.md for details on our code of conduct and the process for submitting pull requests.)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+TBD: This project is currently licensed under no License - see the [LICENSE.md](LICENSE.md) file for details.
 
 ## Contact
 
-Your Name - [@YourTwitter](https://twitter.com/YourTwitter) - email@example.com
+Your Name - [@YourTwitter](https://twitter.com/therealbaderb) - email@example.com
 
 Project Link: [https://github.com/yourusername/mount-management-script](https://github.com/yourusername/mount-management-script)
