@@ -110,3 +110,47 @@
 2024-07-16 22:37:00 - Copied custom mount syno-share to script directory
 2024-07-16 22:37:03 - Copied custom mount syno-home to script directory
 2024-07-16 22:37:09 - Copied custom mount syno-video to script directory
+2024-07-17 10:50:58 - Reloaded systemd configuration
+2024-07-17 10:50:58 - Activated mount: syno-software
+2024-07-17 10:51:12 - Reloaded systemd configuration
+2024-07-17 10:51:12 - Deactivated mount: syno-software
+2024-07-17 10:51:33 - Reloaded systemd configuration
+2024-07-17 10:51:33 - Activated mount: syno-games
+2024-07-17 10:51:35 - Reloaded systemd configuration
+2024-07-17 10:51:35 - Deactivated mount: syno-games
+2024-07-17 10:55:31 - Reloaded systemd configuration
+2024-07-17 10:55:36 - Activated mount: syno-video
+2024-07-17 10:55:39 - Reloaded systemd configuration
+2024-07-17 10:55:39 - Deactivated mount: syno-video
+2024-07-17 10:55:43 - Reloaded systemd configuration
+2024-07-17 10:55:43 - Deactivated mount: syno-downloads
+2024-07-17 10:55:44 - Reloaded systemd configuration
+2024-07-17 10:55:46 - Created and enabled automount for syno-downloads
+2024-07-17 11:16:43 - Reloaded systemd configuration
+2024-07-17 11:16:48 - Created and enabled automount for syno-software
+2024-07-17 11:18:08 - Reloaded systemd configuration
+2024-07-17 11:18:14 - Created and enabled automount for syno-software
+2024-07-17 11:19:30 - Reloaded systemd configuration
+2024-07-17 11:19:34 - Created and enabled automount for syno-music
+2024-07-17 12:03:57 - Reloaded systemd configuration
+2024-07-17 12:04:01 - Activated mount: syno-cloudsync
+2024-07-17 12:04:11 - Failed to deactivate mount: syno-cloudsync (in use)
+2024-07-17 12:04:22 - Reloaded systemd configuration
+2024-07-17 12:04:22 - Deactivated mount: syno-cloudsync
+2024-07-17 12:04:28 - Reloaded systemd configuration
+2024-07-17 12:04:35 - Enabled syno-cloudsync for automatic mounting at system startup
+2024-07-17 12:06:28 - Reloaded systemd configuration
+2024-07-17 12:06:31 - Activated mount: syno-share
+2024-07-17 12:08:10 - Failed to deactivate mount: syno-share (in use)
+2024-07-17 12:14:34 - Failed to deactivate mount: syno-share (in use)
+2024-07-17 12:14:59 - Reloaded systemd configuration
+2024-07-17 12:14:59 - Deactivated mount: syno-share
+2024-07-17 12:17:49 - Reloaded systemd configuration
+2024-07-17 12:22:46 - Reloaded systemd configuration
+2024-07-17 12:22:46 - Activated mount: syno-video
+2024-07-17 12:22:57 - Failed to deactivate mount: syno-video (in use)
+2024-07-17 12:23:05 - Reloaded systemd configuration
+2024-07-17 12:23:05 - Deactivated mount: syno-video
+2024-07-17 15:47:28 - Reloaded systemd configuration
+2024-07-17 15:47:28 - Activated mount: syno-cloudsync
+2024-07-17 16:49:17 - Created and enabled automount for syno-video

@@ -66,6 +66,6 @@ TBD: This project is currently licensed under no License - see the [LICENSE.md](
 
 ## Contact
 
-Your Name - [@YourTwitter](https://twitter.com/therealbaderb) - email@example.com
+TBD: Your Name - [@YourTwitter](https://twitter.com/therealbaderb) - email@example.com
 
-Project Link: [https://github.com/yourusername/mount-management-script](https://github.com/yourusername/mount-management-script)
+TBD: Project Link: [https://github.com/yourusername/mount-management-script](https://github.com/yourusername/mount-management-script)
